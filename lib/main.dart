@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_mapbox_navigation/library.dart';
 import 'package:get/get.dart';
+import 'package:location/location.dart';
 
 void main() {
   runApp(MyApp());
@@ -31,42 +32,73 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   final MapController controller = Get.put(MapController());
   late final MapBoxNavigationViewController _controller;
+  final Location _location = Location();
 
   late MapBoxNavigation _directions;
 
-  final cityHall =
-      WayPoint(name: "City Hall", latitude: 42.886448, longitude: -78.878372);
-  final downtown = WayPoint(
-      name: "Downtown Buffalo", latitude: 42.8866177, longitude: -78.8814924);
+  // final cityHall =
+  //     WayPoint(name: "City Hall", latitude: 42.886448, longitude: -78.878372);
+  // final downtown = WayPoint(
+  //     name: "Downtown Buffalo", latitude: 42.8866177, longitude: -78.8814924);
 
   var wayPoints = <WayPoint>[];
 
-  final _options = MapBoxOptions(
-      initialLatitude: 36.1175275,
-      initialLongitude: -115.1839524,
-      zoom: 13.0,
-      tilt: 0.0,
-      bearing: 0.0,
-      enableRefresh: false,
-      alternatives: true,
-      voiceInstructionsEnabled: true,
-      bannerInstructionsEnabled: true,
-      allowsUTurnAtWayPoints: true,
-      mode: MapBoxNavigationMode.drivingWithTraffic,
-      units: VoiceUnits.imperial,
-      simulateRoute: true,
-      language: "en");
+  late final _options;
 
   @override
-  void initState() async {
+  void initState() {
+    beginLocation();
+    super.initState();
+  }
+
+  beginLocation() async {
+    await assertLocationEnabled();
+    await assertLocationPermission();
+
+    final currentLocation = await _location.getLocation();
+
+    _options = MapBoxOptions(
+        initialLatitude: currentLocation.latitude, //36.1175275,
+        initialLongitude: currentLocation.longitude, //-115.1839524,
+        zoom: 13.0,
+        tilt: 0.0,
+        bearing: 0.0,
+        enableRefresh: false,
+        alternatives: true,
+        voiceInstructionsEnabled: true,
+        bannerInstructionsEnabled: true,
+        allowsUTurnAtWayPoints: true,
+        mode: MapBoxNavigationMode.drivingWithTraffic,
+        units: VoiceUnits.imperial,
+        simulateRoute: true,
+        language: "en");
+
     _directions = MapBoxNavigation(onRouteEvent: _onRouteEvent);
 
-    wayPoints.add(cityHall);
-    wayPoints.add(downtown);
+    controller.changeLoading();
+  }
 
-    await _directions.startNavigation(wayPoints: wayPoints, options: _options);
+  final _denyPermision = [
+    PermissionStatus.denied,
+    PermissionStatus.deniedForever
+  ];
 
-    super.initState();
+  assertLocationEnabled() async {
+    var enabled = await _location.serviceEnabled();
+
+    if (!enabled) {
+      enabled = await _location.requestService();
+      if (!enabled) throw ("Location not enabled");
+    }
+  }
+
+  assertLocationPermission() async {
+    var permission = await _location.hasPermission();
+
+    if (_denyPermision.contains(permission)) {
+      permission = await _location.requestPermission();
+      if (_denyPermision.contains(permission)) assertLocationPermission();
+    }
   }
 
   Future<void> _onRouteEvent(e) async {
@@ -116,17 +148,19 @@ class _MyHomePageState extends State<MyHomePage> {
       appBar: AppBar(
         title: Text(widget.title),
       ),
-      body: StreamBuilder<bool?>(
+      body: StreamBuilder<bool>(
+        stream: controller.stream,
+        initialData: controller.value,
         builder: (_, loadingSnapshot) {
           if (!loadingSnapshot.hasData || loadingSnapshot.data!)
-            return CircularProgressIndicator();
+            return Center(child: CircularProgressIndicator());
           return Container(
             color: Colors.grey,
             child: MapBoxNavigationView(
                 options: _options,
                 onRouteEvent: _onRouteEvent,
-                onCreated: (MapBoxNavigationViewController controller) async {
-                  _controller = controller;
+                onCreated: (MapBoxNavigationViewController c) async {
+                  _controller = c;
                 }),
           );
         },
